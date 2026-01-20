@@ -6,6 +6,7 @@ dotenv.config();
 
 const products = [
   {
+    id: 1,
     name: "Wireless Headphones",
     category: "Electronics",
     price: 79.99,
@@ -15,6 +16,7 @@ const products = [
     inStock: true
   },
   {
+    id: 2,
     name: "Smart Watch",
     category: "Electronics",
     price: 249.99,
@@ -24,6 +26,7 @@ const products = [
     inStock: true
   },
   {
+    id: 3,
     name: "Running Shoes",
     category: "Fashion",
     price: 129.99,
@@ -33,6 +36,7 @@ const products = [
     inStock: true
   },
   {
+    id: 4,
     name: "Leather Jacket",
     category: "Fashion",
     price: 199.99,
@@ -42,6 +46,7 @@ const products = [
     inStock: true
   },
   {
+    id: 5,
     name: "Laptop Stand",
     category: "Electronics",
     price: 39.99,
@@ -51,6 +56,7 @@ const products = [
     inStock: true
   },
   {
+    id: 6,
     name: "Denim Jeans",
     category: "Fashion",
     price: 69.99,
@@ -60,6 +66,7 @@ const products = [
     inStock: true
   },
   {
+    id: 7,
     name: "Coffee Maker",
     category: "Home",
     price: 89.99,
@@ -69,6 +76,7 @@ const products = [
     inStock: true
   },
   {
+    id: 8,
     name: "Throw Pillows Set",
     category: "Home",
     price: 34.99,
@@ -78,6 +86,7 @@ const products = [
     inStock: true
   },
   {
+    id: 9,
     name: "Yoga Mat",
     category: "Sports",
     price: 29.99,
@@ -87,6 +96,7 @@ const products = [
     inStock: true
   },
   {
+    id: 10,
     name: "Dumbbell Set",
     category: "Sports",
     price: 149.99,
@@ -96,6 +106,7 @@ const products = [
     inStock: true
   },
   {
+    id: 11,
     name: "Backpack",
     category: "Fashion",
     price: 59.99,
@@ -105,6 +116,7 @@ const products = [
     inStock: true
   },
   {
+    id: 12,
     name: "Wireless Mouse",
     category: "Electronics",
     price: 24.99,

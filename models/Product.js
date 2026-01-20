@@ -2,6 +2,11 @@ import mongoose from "mongoose";
 
 const productSchema = new mongoose.Schema(
   {
+    // id: {
+    //   type: Number,
+    //   required: true,
+    //   unique: true
+    // },
     name: {
       type: String,
       required: true
@@ -15,8 +20,8 @@ const productSchema = new mongoose.Schema(
       required: true,
       min: 0,
       validate: {
-      validator: value => Number.isFinite(value),
-      message: "Price must be a valid number"
+        validator: value => Number.isFinite(value),
+        message: "Price must be a valid number"
       }
     },
     image: {
