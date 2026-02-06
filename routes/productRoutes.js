@@ -12,9 +12,9 @@ const router = express.Router();
 
 router.get("/", getProducts);
 router.get("/categories", getCategories);
-router.get("/:id", getProductById);
+router.get("/:pid", getProductById);
 router.post('/createProduct', createProduct);
-router.put('/updateProduct/:id', updateProduct);
-router.delete('/deleteProduct/:id', deleteProduct);
+router.put('/updateProduct/:pid', updateProduct);
+router.delete('/deleteProduct/:pid', deleteProduct);
 
 export default router;

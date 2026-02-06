@@ -20,12 +20,12 @@ export const getCategories = async (req, res) => {
   }
 };
 
-// GET single product by ID
+// GET single product by PID
 export const getProductById = async (req, res) => {
-  const {id} = req.params;
-  console.log('id', id)
+  const { pid } = req.params;
+  console.log('pid', pid);
   try {
-    const product = await Product.findOne({ id: {id: req.params.id} });
+    const product = await Product.findOne({ pid: Number(pid) });
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
@@ -37,7 +37,7 @@ export const getProductById = async (req, res) => {
 
 // POST new product
 export const createProduct = async (req, res) => {
-  const { id, name, category, price } = req.body;  
+  const { pid, name, category, price } = req.body;  
   if (!name || !category || !price) {
     return res.status(400).json({ message: "Please provide all required fields" });
   }  
@@ -54,8 +54,7 @@ export const createProduct = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const updatedProduct = await Product.findOneAndUpdate(
-      { id: req.params.id },
-      // { id: productId },
+      { pid: Number(req.params.pid) },
       req.body,
       { new: true, runValidators: true }
     );
@@ -71,7 +70,7 @@ export const updateProduct = async (req, res) => {
 // DELETE product
 export const deleteProduct = async (req, res) => {
   try {
-    const deletedProduct = await Product.findOneAndDelete({ id: req.params.id });
+    const deletedProduct = await Product.findOneAndDelete({ pid: Number(req.params.pid) });
     if (!deletedProduct) {
       return res.status(404).json({ message: "Product not found" });
     }    
