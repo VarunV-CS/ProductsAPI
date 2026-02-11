@@ -1,10 +1,41 @@
 import Product from "../models/Product.js";
 
-// GET all products
+// GET all products with pagination
 export const getProducts = async (req, res) => {
   try {
-    const products = await Product.find();
-    res.json(products);
+    // Get pagination parameters from query string
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+    
+    // Get total count of products
+    const total = await Product.countDocuments();
+    
+    // Calculate total pages
+    const totalPages = Math.ceil(total / limit);
+    
+    // Fetch products with pagination
+    const products = await Product.find()
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
+    
+    // Return response with pagination metadata
+    res.json({
+      products,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+        nextPage: page < totalPages ? page + 1 : null,
+        prevPage: page > 1 ? page - 1 : null
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
