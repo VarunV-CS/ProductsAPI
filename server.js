@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 
 import connectDB from "./config/db.js";
 import productRoutes from "./routes/productRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 import config from "./config/index.js";
 
 
@@ -13,10 +14,7 @@ connectDB();
 
 const app = express();
 
-app.use(cors({
-  origin: process.env.CLIENT_URL,
-  credentials: true
-}));
+app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -34,6 +32,7 @@ app.use(LoggerMiddleware);
 //   res.send("Products API is running...");
 // });
 app.use("/products", productRoutes);
+app.use("/auth", authRoutes);
 
 const PORT = config.PORT || 4000;
 app.listen(PORT, () => {
