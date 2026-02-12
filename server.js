@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import connectDB from "./config/db.js";
 import productRoutes from "./routes/productRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import commentRoutes from "./routes/commentRoutes.js";
 import config from "./config/index.js";
 
 
@@ -33,6 +34,7 @@ app.use(LoggerMiddleware);
 // });
 app.use("/products", productRoutes);
 app.use("/auth", authRoutes);
+app.use("/comments", commentRoutes);
 
 const PORT = config.PORT || 4000;
 app.listen(PORT, () => {

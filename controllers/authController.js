@@ -3,8 +3,8 @@ import User from '../models/User.js';
 import config from '../config/index.js';
 
 // Generate JWT token
-const generateToken = (userId) => {
-  return jwt.sign({ id: userId }, config.JWT_SECRET, {
+const generateToken = (userId, name, role) => {
+  return jwt.sign({ id: userId, name, role }, config.JWT_SECRET, {
     expiresIn: '7d'
   });
 };
@@ -36,7 +36,7 @@ export const register = async (req, res) => {
     await user.save();
 
     // Generate token
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, user.name, user.role);
 
     res.status(201).json({
       success: true,
@@ -89,7 +89,7 @@ export const login = async (req, res) => {
     await user.save();
 
     // Generate token
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, user.name, user.role);
 
     res.json({
       success: true,
