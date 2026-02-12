@@ -5,7 +5,8 @@ import {
   login,
   getProfile,
   saveCart,
-  loadCart
+  loadCart,
+  logout
 } from '../controllers/authController.js';
 
 const router = express.Router();
@@ -18,6 +19,7 @@ router.post('/login', login);
 router.get('/profile', authMiddleware, getProfile);
 router.post('/cart', authMiddleware, saveCart);
 router.get('/cart', authMiddleware, loadCart);
+router.post('/logout', authMiddleware, logout);
 
 export default router;
 

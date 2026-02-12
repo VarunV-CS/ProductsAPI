@@ -209,11 +209,30 @@ export const loadCart = async (req, res) => {
   }
 };
 
+// @desc    Logout user
+// @route   POST /api/auth/logout
+// @access  Private
+export const logout = async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: 'User logged out successfully'
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during logout'
+    });
+  }
+};
+
 export default {
   register,
   login,
   getProfile,
   saveCart,
-  loadCart
+  loadCart,
+  logout
 };
 
