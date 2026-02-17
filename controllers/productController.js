@@ -168,3 +168,32 @@ export const deleteProduct = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// POST multiple products at once (bulk create)
+export const createProducts = async (req, res) => {
+  const { products } = req.body;
+  
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ message: "Please provide an array of products" });
+  }
+  
+  // Validate each product
+  for (const product of products) {
+    if (!product.name || !product.category || !product.price) {
+      return res.status(400).json({ 
+        message: "Each product must have name, category, and price fields" 
+      });
+    }
+  }
+  
+  try {
+    const savedProducts = await Product.insertMany(products);
+    res.status(201).json({
+      success: true,
+      message: `${savedProducts.length} products created successfully`,
+      products: savedProducts
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
