@@ -66,12 +66,29 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email/username and password'
+      });
+    }
+
+    // Determine if input is email or name
+    // If it contains '@', treat as email, otherwise treat as name
+    const isEmail = email.includes('@');
+    
+    // Find user by email or name (case-insensitive for name)
+    let user;
+    if (isEmail) {
+      user = await User.findOne({ email: email.toLowerCase() });
+    } else {
+      user = await User.findOne({ name: { $regex: new RegExp(`^${email.trim()}$`, 'i') } });
+    }
+    
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: isEmail ? 'Invalid email or password' : 'Invalid username or password'
       });
     }
 
@@ -80,7 +97,7 @@ export const login = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: isEmail ? 'Invalid email or password' : 'Invalid username or password'
       });
     }
 
