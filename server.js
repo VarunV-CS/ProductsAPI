@@ -8,12 +8,17 @@ import connectDB from "./config/db.js";
 import productRoutes from "./routes/productRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import commentRoutes from "./routes/commentRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 import config from "./config/index.js";
 
 
 connectDB();
 
 const app = express();
+
+// Stripe webhook needs raw body, so we handle it before JSON parser
+// This route must come before app.use(express.json())
+app.use("/payment/webhook", paymentRoutes);
 
 app.use(cors());
 app.use(bodyParser.json());
@@ -35,6 +40,7 @@ app.use(LoggerMiddleware);
 app.use("/products", productRoutes);
 app.use("/auth", authRoutes);
 app.use("/comments", commentRoutes);
+app.use("/payment", paymentRoutes);
 
 const PORT = config.PORT || 4000;
 app.listen(PORT, () => {
