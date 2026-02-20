@@ -4,7 +4,8 @@ import {
   handlePaymentSuccess,
   getOrderStatus,
   handleWebhook,
-  verifyPayment
+  verifyPayment,
+  getUserOrders
 } from '../controllers/paymentController.js';
 import authMiddleware from '../middleware/auth.js';
 
@@ -21,6 +22,9 @@ router.get('/order/:orderId', authMiddleware, getOrderStatus);
 
 // Verify payment status
 router.post('/verify-payment', authMiddleware, verifyPayment);
+
+// Get all orders for the authenticated user
+router.get('/orders', authMiddleware, getUserOrders);
 
 // Stripe webhook (must be before express.json() middleware for raw body)
 // Note: This route should be added in server.js with raw body parser

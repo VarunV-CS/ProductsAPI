@@ -1,19 +1,18 @@
 import Stripe from 'stripe';
 import { v4 as uuidv4 } from 'uuid';
+import Order from '../models/Order.js';
 
 // Initialize Stripe with your secret key
 // Note: In production, use environment variable
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_your_stripe_secret_key', {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2024-12-18.acacia',
 });
-
-// In-memory store for orders (in production, use a database)
-const orders = new Map();
 
 // Create a payment intent
 export const createPaymentIntent = async (req, res) => {
   try {
     const { amount, currency = 'usd', items } = req.body;
+    const userId = req.user ? req.user.id : null; // Get user ID from auth middleware
 
     // Validate amount
     if (!amount || amount <= 0) {
@@ -36,18 +35,18 @@ export const createPaymentIntent = async (req, res) => {
       }
     });
 
-    // Store order details (in production, save to database)
+    // Store order details in MongoDB
     const orderId = paymentIntent.metadata.orderId;
-    orders.set(orderId, {
-      id: orderId,
+    const newOrder = new Order({
+      userId: req.user.id,
       paymentIntentId: paymentIntent.id,
       amount,
       currency,
       items: items || [],
-      status: 'pending',
-      createdAt: new Date(),
-      updatedAt: new Date()
+      status: 'pending'
     });
+    
+    await newOrder.save();
 
     res.status(200).json({
       success: true,
@@ -69,12 +68,12 @@ export const handlePaymentSuccess = async (req, res) => {
   try {
     const { paymentIntentId, orderId } = req.body;
 
-    if (orderId && orders.has(orderId)) {
-      const order = orders.get(orderId);
+    // Update order in MongoDB
+    const order = await Order.findOne({ paymentIntentId });
+    
+    if (order) {
       order.status = 'completed';
-      order.paymentIntentId = paymentIntentId;
-      order.updatedAt = new Date();
-      orders.set(orderId, order);
+      await order.save();
     }
 
     res.status(200).json({ success: true });
@@ -99,7 +98,8 @@ export const getOrderStatus = async (req, res) => {
       });
     }
 
-    const order = orders.get(orderId);
+    // Find order in MongoDB
+    const order = await Order.findOne({ _id: orderId, userId: req.user.id });
 
     if (!order) {
       return res.status(404).json({
@@ -111,7 +111,7 @@ export const getOrderStatus = async (req, res) => {
     res.status(200).json({
       success: true,
       order: {
-        id: order.id,
+        id: order._id,
         amount: order.amount,
         currency: order.currency,
         status: order.status,
@@ -150,21 +150,24 @@ export const handleWebhook = async (req, res) => {
         const paymentIntent = event.data.object;
         console.log('Payment succeeded:', paymentIntent.id);
         
-        // Update order status in database
-        if (paymentIntent.metadata && paymentIntent.metadata.orderId) {
-          const orderId = paymentIntent.metadata.orderId;
-          if (orders.has(orderId)) {
-            const order = orders.get(orderId);
-            order.status = 'completed';
-            order.updatedAt = new Date();
-            orders.set(orderId, order);
-          }
+        // Update order status in MongoDB
+        const order = await Order.findOne({ paymentIntentId: paymentIntent.id });
+        if (order) {
+          order.status = 'completed';
+          await order.save();
         }
         break;
         
       case 'payment_intent.payment_failed':
         const failedPayment = event.data.object;
         console.log('Payment failed:', failedPayment.id);
+        
+        // Update order status in MongoDB
+        const failedOrder = await Order.findOne({ paymentIntentId: failedPayment.id });
+        if (failedOrder) {
+          failedOrder.status = 'failed';
+          await failedOrder.save();
+        }
         break;
         
       default:
@@ -203,6 +206,72 @@ export const verifyPayment = async (req, res) => {
     });
   } catch (error) {
     console.error('Error verifying payment:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get all orders for a user
+export const getUserOrders = async (req, res) => {
+  try {
+    const userId = req.user ? req.user.id : null;
+    const { page = 1, limit = 10, status } = req.query;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    // Build query - filter by userId and optionally by status
+    const query = { userId };
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    // Get total count for pagination
+    const total = await Order.countDocuments(query);
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Fetch orders from MongoDB with pagination
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    // Format orders for response
+    const formattedOrders = orders.map(order => ({
+      id: order._id,
+      paymentIntentId: order.paymentIntentId,
+      amount: order.amount,
+      currency: order.currency,
+      items: order.items,
+      status: order.status,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      orders: formattedOrders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    console.error('Error getting user orders:', error);
     res.status(500).json({
       success: false,
       message: error.message
