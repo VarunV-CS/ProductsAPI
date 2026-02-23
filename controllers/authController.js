@@ -14,7 +14,7 @@ const generateToken = (userId, name, role) => {
 // @access  Public
 export const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, businessName } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -25,12 +25,28 @@ export const register = async (req, res) => {
       });
     }
 
+    // Validate businessName for sellers
+    if (role === 'seller' && !businessName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Business name is required for sellers'
+      });
+    }
+
+    if (role === 'seller' && businessName && businessName.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Business name must be at least 3 characters'
+      });
+    }
+
     // Create new user
     const user = new User({
       name,
       email: email.toLowerCase(),
       password,
-      role: role || 'buyer'
+      role: role || 'buyer',
+      businessName: role === 'seller' ? businessName.trim() : undefined
     });
 
     await user.save();
@@ -47,6 +63,7 @@ export const register = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        businessName: user.businessName,
         cart: user.cart
       }
     });
@@ -117,6 +134,7 @@ export const login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        businessName: user.businessName,
         cart: user.cart
       }
     });
@@ -150,6 +168,7 @@ export const getProfile = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        businessName: user.businessName,
         cart: user.cart,
         lastLogin: user.lastLogin,
         createdAt: user.createdAt

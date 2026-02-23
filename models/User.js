@@ -25,6 +25,14 @@ const userSchema = new mongoose.Schema(
       enum: ['buyer', 'seller', 'admin'],
       default: 'buyer'
     },
+    businessName: {
+      type: String,
+      trim: true,
+      required: function() {
+        return this.role === 'seller';
+      },
+      minlength: 3
+    },
     cart: {
       type: [
         {
@@ -57,6 +65,44 @@ const userSchema = new mongoose.Schema(
     },
     lastLogin: {
       type: Date
+    },
+    products: {
+      type: [
+        {
+          pid: {
+            type: Number,
+            required: true
+          },
+          name: {
+            type: String,
+            required: true
+          },
+          category: {
+            type: String,
+            required: true
+          },
+          price: {
+            type: Number,
+            required: true
+          },
+          image: {
+            type: String
+          },
+          description: {
+            type: String
+          },
+          inStock: {
+            type: Boolean,
+            default: true
+          },
+          status: {
+            type: String,
+            enum: ['Submitted', 'Approved', 'Rejected'],
+            default: 'Submitted'
+          }
+        }
+      ],
+      default: []
     }
   },
   {

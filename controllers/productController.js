@@ -1,4 +1,5 @@
 import Product from "../models/Product.js";
+import User from "../models/User.js";
 
 // GET all products with pagination, filtering, and sorting
 export const getProducts = async (req, res) => {
@@ -109,6 +110,24 @@ export const getCategories = async (req, res) => {
   }
 };
 
+// GET seller's products (protected)
+export const getMyProducts = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('products');
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      success: true,
+      products: user.products || []
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // GET single product by PID
 export const getProductById = async (req, res) => {
   const { pid } = req.params;
@@ -124,15 +143,51 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// POST new product
+// GET latest product ID
+export const getLatestProductId = async (req, res) => {
+  try {
+    // Find the product with the highest pid
+    const latestProduct = await Product.findOne().sort({ pid: -1 });
+    
+    if (!latestProduct) {
+      // If no products exist, start with ID 1
+      return res.json({ latestPid: 0 });
+    }
+    
+    res.json({ latestPid: latestProduct.pid });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// POST new product (with auth - adds to user's products)
 export const createProduct = async (req, res) => {
-  const { pid, name, category, price } = req.body;  
+  const { pid, name, category, price, image, description, inStock } = req.body;  
   if (!name || !category || !price) {
     return res.status(400).json({ message: "Please provide all required fields" });
   }  
   try {
     const product = new Product(req.body);
     const savedProduct = await product.save();
+    
+    // If user is authenticated, add product to their products array
+    if (req.user) {
+      await User.findByIdAndUpdate(req.user.id, {
+        $push: {
+          products: {
+            pid: savedProduct.pid,
+            name: savedProduct.name,
+            category: savedProduct.category,
+            price: savedProduct.price,
+            image: savedProduct.image,
+            description: savedProduct.description,
+            inStock: savedProduct.inStock,
+            status: savedProduct.status || 'Submitted'
+          }
+        }
+      });
+    }
+    
     res.status(201).json(savedProduct);
   } catch (error) {
     res.status(400).json({ message: error.message });

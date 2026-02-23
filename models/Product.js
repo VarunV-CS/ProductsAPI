@@ -43,6 +43,11 @@ const productSchema = new mongoose.Schema(
     inStock: {
       type: Boolean,
       default: true
+    },
+    status: {
+      type: String,
+      enum: ['Submitted', 'Approved', 'Rejected'],
+      default: 'Submitted'
     }
   },
   {
