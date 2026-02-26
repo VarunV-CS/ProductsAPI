@@ -46,8 +46,16 @@ const productSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['Submitted', 'Approved', 'Rejected'],
+      enum: ['Submitted', 'Approved', 'Rejected', 'Deleted'],
       default: 'Submitted'
+    },
+    rejectionReason: {
+      type: String,
+      default: null
+    },
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'users'
     }
   },
   {

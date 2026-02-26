@@ -263,12 +263,293 @@ export const logout = async (req, res) => {
   }
 };
 
+// @desc    Get all users (admin only)
+// @route   GET /api/auth/all-users?role=admin|seller|buyer&page=1&limit=10
+// @access  Private (Admin)
+export const getAllUsers = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    // Get pagination and filter parameters from query string
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const roleFilter = req.query.role || 'all';
+
+    // Build query based on role filter
+    const query = {};
+    if (roleFilter && roleFilter !== 'all') {
+      query.role = roleFilter;
+    }
+    
+    // Get total count for pagination
+    const total = await User.countDocuments(query);
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+
+    // Get users with pagination and optional role filter
+    const users = await User.find(query)
+      .select('-password')
+      .lean()
+      .skip(skip)
+      .limit(limit);
+    
+    // Get product count for each user by counting products in Product collection
+    const Product = (await import('../models/Product.js')).default;
+    
+    // Transform users to include product count
+    const usersWithProductCount = await Promise.all(
+      users.map(async (user) => {
+        const productCount = await Product.countDocuments({ user: user._id });
+        return {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          businessName: user.businessName,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          productCount,
+          isActive: user.isActive !== false
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      users: usersWithProductCount,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error fetching users'
+    });
+  }
+};
+
+// @desc    Update user (admin can update name, businessName, role)
+// @route   PUT /api/auth/update-user/:id
+// @access  Private (Admin)
+export const updateUser = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { id } = req.params;
+    const { name, businessName, role } = req.body;
+
+    // Find the user to update
+    const userToUpdate = await User.findById(id);
+    
+    if (!userToUpdate) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent admin from changing their own role (to avoid lockout)
+    if (userToUpdate._id.toString() === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot modify your own admin account'
+      });
+    }
+
+    // Validate role if provided
+    if (role && !['buyer', 'seller', 'admin'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be buyer, seller, or admin'
+      });
+    }
+
+    // Validate businessName for sellers
+    if (role === 'seller' || userToUpdate.role === 'seller') {
+      if ((role === 'seller' || userToUpdate.role === 'seller') && !businessName && !userToUpdate.businessName) {
+        return res.status(400).json({
+          success: false,
+          message: 'Business name is required for sellers'
+        });
+      }
+    }
+
+    // Update fields
+    if (name) userToUpdate.name = name;
+    if (businessName) userToUpdate.businessName = businessName;
+    if (role) userToUpdate.role = role;
+
+    await userToUpdate.save();
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: {
+        _id: userToUpdate._id,
+        name: userToUpdate.name,
+        email: userToUpdate.email,
+        role: userToUpdate.role,
+        businessName: userToUpdate.businessName,
+        createdAt: userToUpdate.createdAt,
+        lastLogin: userToUpdate.lastLogin
+      }
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error updating user'
+    });
+  }
+};
+
+// @desc    Change user password (admin verified)
+// @route   PUT /api/auth/change-user-password/:id
+// @access  Private (Admin)
+export const changeUserPassword = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { id } = req.params;
+    const { newPassword, adminPassword } = req.body;
+
+    // First verify the admin's password
+    const adminUser = await User.findById(req.user.id);
+    if (!adminUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin user not found'
+      });
+    }
+
+    const isAdminPasswordValid = await adminUser.comparePassword(adminPassword);
+    if (!isAdminPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid admin password'
+      });
+    }
+
+    // Find the user whose password is being changed
+    const userToUpdate = await User.findById(id);
+    
+    if (!userToUpdate) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Validate new password
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters'
+      });
+    }
+
+    // Update password (will be hashed by pre-save middleware)
+    userToUpdate.password = newPassword;
+    await userToUpdate.save();
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Change user password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error changing password'
+    });
+  }
+};
+
+// @desc    Deactivate user account
+// @route   PUT /api/auth/deactivate-user/:id
+// @access  Private (Admin)
+export const deactivateUser = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const { id } = req.params;
+
+    // Find the user to deactivate
+    const userToDeactivate = await User.findById(id);
+    
+    if (!userToDeactivate) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent admin from deactivating their own account
+    if (userToDeactivate._id.toString() === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot deactivate your own account'
+      });
+    }
+
+    // Add isActive field if it doesn't exist and set to false
+    userToDeactivate.isActive = false;
+    await userToDeactivate.save();
+
+    res.json({
+      success: true,
+      message: 'User account deactivated successfully'
+    });
+  } catch (error) {
+    console.error('Deactivate user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error deactivating user'
+    });
+  }
+};
+
 export default {
   register,
   login,
   getProfile,
   saveCart,
   loadCart,
-  logout
+  logout,
+  getAllUsers,
+  updateUser,
+  changeUserPassword,
+  deactivateUser
 };
 

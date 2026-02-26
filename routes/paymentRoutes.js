@@ -5,9 +5,14 @@ import {
   getOrderStatus,
   handleWebhook,
   verifyPayment,
-  getUserOrders
+  getUserOrders,
+  getAllOrders,
+  getSellerOrders,
+  updateSellerOrderStatus,
+  updateAdminOrderStatus
 } from '../controllers/paymentController.js';
 import authMiddleware from '../middleware/auth.js';
+import { sellerMiddleware } from '../middleware/sellerAuth.js';
 
 const router = express.Router();
 
@@ -29,6 +34,18 @@ router.get('/orders', authMiddleware, getUserOrders);
 // Stripe webhook (must be before express.json() middleware for raw body)
 // Note: This route should be added in server.js with raw body parser
 router.post('/webhook', handleWebhook);
+
+// Get all orders for admin (all completed orders)
+router.get('/admin/orders', authMiddleware, getAllOrders);
+
+// Update order status for admin
+router.put('/admin/orders/:orderId/status', authMiddleware, updateAdminOrderStatus);
+
+// Get orders for seller (orders containing their products)
+router.get('/seller/orders', authMiddleware, sellerMiddleware, getSellerOrders);
+
+// Update order status for seller
+router.put('/seller/orders/:orderId/status', authMiddleware, sellerMiddleware, updateSellerOrderStatus);
 
 export default router;
 

@@ -2,6 +2,7 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 
 // GET all products with pagination, filtering, and sorting
+// Only returns "Approved" products for customers
 export const getProducts = async (req, res) => {
   try {
     // Get pagination parameters from query string
@@ -15,8 +16,8 @@ export const getProducts = async (req, res) => {
     const maxPrice = req.query.maxPrice ? parseFloat(req.query.maxPrice) : null;
     const sortBy = req.query.sortBy || 'createdAt-desc';
     
-    // Build filter object
-    const filter = {};
+    // Build filter object - ONLY show Approved products to customers
+    const filter = { status: 'Approved' };
     
     // Category filter
     if (category && category !== 'All') {
@@ -110,18 +111,27 @@ export const getCategories = async (req, res) => {
   }
 };
 
-// GET seller's products (protected)
+// GET seller's products (protected) - with optional status filter
 export const getMyProducts = async (req, res) => {
   try {
+    const { status } = req.query;
+    
     const user = await User.findById(req.user.id).select('products');
     
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    let products = user.products || [];
+    
+    // Apply status filter if provided
+    if (status && status !== 'all') {
+      products = products.filter(p => p.status === status);
+    }
+
     res.json({
       success: true,
-      products: user.products || []
+      products
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -167,7 +177,10 @@ export const createProduct = async (req, res) => {
     return res.status(400).json({ message: "Please provide all required fields" });
   }  
   try {
-    const product = new Product(req.body);
+    const product = new Product({
+      ...req.body,
+      user: req.user ? req.user.id : null
+    });
     const savedProduct = await product.save();
     
     // If user is authenticated, add product to their products array
@@ -221,6 +234,150 @@ export const deleteProduct = async (req, res) => {
     res.json({ message: "Product deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// GET all products for admin (including Submitted, Approved, Rejected)
+export const getAllProducts = async (req, res) => {
+  try {
+    // Get pagination parameters from query string
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    
+    // Get filter parameters from query string
+    const status = req.query.status;
+    const category = req.query.category;
+    const search = req.query.search;
+    
+    // Build filter object - admin can see all products
+    const filter = {};
+    
+    // Status filter
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+    
+    // Category filter
+    if (category && category !== 'All') {
+      filter.category = category;
+    }
+    
+    // Search filter (name or category)
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    // Calculate skip value for pagination
+    const skip = (page - 1) * limit;
+    
+    // Get total count of filtered products
+    const total = await Product.countDocuments(filter);
+    
+    // Calculate total pages
+    const totalPages = Math.ceil(total / limit);
+    
+    // Fetch products with pagination, filtering, and populate user info
+    const products = await Product.find(filter)
+      .populate('user', 'name email businessName')
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1, pid: -1 });
+    
+    // Transform products to include username
+    const productsWithUser = products.map(product => {
+      const productObj = product.toObject();
+      // Determine username - prefer businessName, then name, then email
+      let username = 'Unknown';
+      if (productObj.user) {
+        username = productObj.user.businessName || productObj.user.name || productObj.user.email;
+      }
+      return {
+        ...productObj,
+        username,
+        sellerName: productObj.user?.name || '',
+        sellerBusinessName: productObj.user?.businessName || ''
+      };
+    });
+    
+    // Return response with pagination metadata
+    res.json({
+      products: productsWithUser,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+        nextPage: page < totalPages ? page + 1 : null,
+        prevPage: page > 1 ? page - 1 : null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PUT update product status (for admin approval/rejection)
+export const updateProductStatus = async (req, res) => {
+  const { pid } = req.params;
+  const { status, rejectionReason } = req.body;
+  
+  // Validate status - Admin can set to Approved, Rejected, or Deleted
+  // "Submitted" is the initial status for new products from sellers
+  if (!['Approved', 'Rejected', 'Deleted'].includes(status)) {
+    return res.status(400).json({ message: "Invalid status. Admin can only set status to 'Approved', 'Rejected', or 'Deleted'" });
+  }
+  
+  // If status is Rejected, rejectionReason is required
+  if (status === 'Rejected' && !rejectionReason) {
+    return res.status(400).json({ message: "Rejection reason is required when rejecting a product" });
+  }
+  
+  try {
+    // Build update object
+    const updateData = { status: status };
+    
+    // If rejecting, add the rejection reason
+    if (status === 'Rejected' && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
+    } else if (status === 'Approved') {
+      // Clear rejection reason when approving
+      updateData.rejectionReason = null;
+    }
+    
+    const updatedProduct = await Product.findOneAndUpdate(
+      { pid: Number(pid) },
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    if (!updatedProduct) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+    
+    // Also update in user's products array
+    await User.updateMany(
+      { "products.pid": Number(pid) },
+      { 
+        $set: { 
+          "products.$.status": status,
+          ...(status === 'Rejected' && rejectionReason ? { "products.$.rejectionReason": rejectionReason } : {}),
+          ...(status === 'Approved' ? { "products.$.rejectionReason": null } : {})
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      message: `Product ${status.toLowerCase()} successfully`,
+      product: updatedProduct
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
   }
 };
 

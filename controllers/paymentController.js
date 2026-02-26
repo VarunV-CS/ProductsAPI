@@ -279,3 +279,299 @@ export const getUserOrders = async (req, res) => {
   }
 };
 
+// Get all orders for admin (all completed orders with user details)
+export const getAllOrders = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    
+    // Only allow admins
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    // Build query - get all completed orders by default
+    const query = {};
+    if (status && status !== 'all') {
+      query.status = status;
+    } else {
+      // Default to showing completed orders
+      query.status = 'completed';
+    }
+
+    // Get total count for pagination
+    const total = await Order.countDocuments(query);
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Fetch orders from MongoDB with pagination
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(limitNum)
+      .populate('userId', 'name email businessName role')
+      .lean();
+
+    // Format orders for response with user details
+    const formattedOrders = orders.map(order => ({
+      id: order._id,
+      paymentIntentId: order.paymentIntentId,
+      amount: order.amount,
+      currency: order.currency,
+      items: order.items,
+      status: order.status,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      user: order.userId ? {
+        id: order.userId._id,
+        name: order.userId.name,
+        email: order.userId.email,
+        businessName: order.userId.businessName,
+        role: order.userId.role
+      } : null
+    }));
+
+    res.status(200).json({
+      success: true,
+      orders: formattedOrders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    console.error('Error getting all orders:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Get orders for seller (orders containing their products)
+export const getSellerOrders = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status } = req.query;
+    const sellerId = req.user.id;
+    
+    // Get seller's product IDs
+    const Product = (await import('../models/Product.js')).default;
+    const sellerProducts = await Product.find({ user: sellerId }).select('pid name').lean();
+    const sellerProductPids = sellerProducts.map(p => p.pid);
+
+    if (sellerProductPids.length === 0) {
+      return res.status(200).json({
+        success: true,
+        orders: [],
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: 0,
+          totalPages: 0
+        }
+      });
+    }
+
+    // Build query - filter orders containing seller's products
+    const query = { 'items.pid': { $in: sellerProductPids } };
+    if (status && status !== 'all') {
+      query.status = status;
+    } else {
+      // Default to showing completed orders
+      query.status = 'completed';
+    }
+
+    // Get total count for pagination
+    const total = await Order.countDocuments(query);
+    
+    // Calculate pagination
+    const totalPages = Math.ceil(total / limit);
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Fetch orders from MongoDB with pagination
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 }) // Most recent first
+      .skip(skip)
+      .limit(limitNum)
+      .populate('userId', 'name email businessName role')
+      .lean();
+
+    // Format orders for response with user details and filter items to seller's products
+    const formattedOrders = orders.map(order => {
+      // Filter items to only show seller's products
+      const sellerItems = order.items.filter(item => sellerProductPids.includes(item.pid));
+      
+      return {
+        id: order._id,
+        paymentIntentId: order.paymentIntentId,
+        amount: order.amount,
+        currency: order.currency,
+        items: sellerItems,
+        status: order.status,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        user: order.userId ? {
+          id: order.userId._id,
+          name: order.userId.name,
+          email: order.userId.email,
+          businessName: order.userId.businessName,
+          role: order.userId.role
+        } : null
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      orders: formattedOrders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    console.error('Error getting seller orders:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Update order status (seller can set: dispatched, returned, unfilled)
+export const updateSellerOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+    const sellerId = req.user.id;
+
+    // Validate status
+    const allowedStatuses = ['dispatched', 'returned', 'unfilled'];
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Seller can only set status to: ${allowedStatuses.join(', ')}`
+      });
+    }
+
+    // Get seller's product IDs
+    const Product = (await import('../models/Product.js')).default;
+    const sellerProducts = await Product.find({ user: sellerId }).select('pid name').lean();
+    const sellerProductPids = sellerProducts.map(p => p.pid);
+
+    if (sellerProductPids.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have any products to manage orders'
+      });
+    }
+
+    // Find the order
+    const order = await Order.findById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    // Check if order contains seller's products
+    const orderProductPids = order.items.map(item => item.pid);
+    const hasSellerProducts = orderProductPids.some(pid => sellerProductPids.includes(pid));
+
+    if (!hasSellerProducts) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to update this order'
+      });
+    }
+
+    // Update the order status
+    order.status = status;
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Order status updated to ${status}`,
+      order: {
+        id: order._id,
+        status: order.status,
+        updatedAt: order.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error updating seller order status:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Update order status (admin can set: delivered, cancelled, refunded)
+export const updateAdminOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+
+    // Only allow admins
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    // Validate status
+    const allowedStatuses = ['delivered', 'cancelled', 'refunded'];
+    if (!status || !allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Admin can only set status to: ${allowedStatuses.join(', ')}`
+      });
+    }
+
+    // Find the order
+    const order = await Order.findById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    // Update the order status
+    order.status = status;
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Order status updated to ${status}`,
+      order: {
+        id: order._id,
+        status: order.status,
+        updatedAt: order.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error updating admin order status:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
