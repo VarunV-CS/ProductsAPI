@@ -10,7 +10,9 @@ import {
   getAllUsers,
   updateUser,
   changeUserPassword,
-  deactivateUser
+  deactivateUser,
+  sendVerificationOTP,
+  verifyOTP
 } from '../controllers/authController.js';
 
 const router = express.Router();
@@ -24,6 +26,9 @@ router.get('/profile', authMiddleware, getProfile);
 router.post('/cart', authMiddleware, saveCart);
 router.get('/cart', authMiddleware, loadCart);
 router.post('/logout', authMiddleware, logout);
+// Verification routes
+router.post('/send-verification-otp', authMiddleware, sendVerificationOTP);
+router.post('/verify-otp', authMiddleware, verifyOTP);
 // Admin route - Get all users
 router.get('/all-users', authMiddleware, getAllUsers);
 // Admin route - Update user

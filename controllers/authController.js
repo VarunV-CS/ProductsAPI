@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import config from '../config/index.js';
+import { sendVerificationEmail } from '../services/emailServices.js';
 
 // Generate JWT token
 const generateToken = (userId, name, role) => {
@@ -317,7 +318,8 @@ export const getAllUsers = async (req, res) => {
           createdAt: user.createdAt,
           lastLogin: user.lastLogin,
           productCount,
-          isActive: user.isActive !== false
+          isActive: user.isActive !== false,
+          isVerified: user.isVerified || false
         };
       })
     );
@@ -539,6 +541,170 @@ export const deactivateUser = async (req, res) => {
     });
   }
 };
+
+export const requestEmailVerification = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const exsistingEmail = await UserModal.findOne({ email: email.toLowerCase()
+    .collation({ locale: 'en', strength: 2 })
+    .exec() });
+    
+    if (!exsistingEmail) {
+      throw createHttpError(409, 'A user with this email does not exist');
+    }
+
+    const verificationCode = crypto.randomInt(100000, 999999).toString(); 
+    // Generate a 6-digit token
+
+    await EmailVerificationToken.create(
+      {email, verificationCode});
+
+    await Email.sendVerificationCode(email, verificationCode);
+
+    res.sendStatus(200);
+  } catch (error) {
+    next(error);
+  }
+
+    const verificationTokenExpiry = Date.now() + 3600000; // 1 hour
+};
+
+// @desc    Send verification OTP to user
+// @route   POST /api/auth/send-verification-otp
+// @access  Private
+export const sendVerificationOTP = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already verified
+    if (user.isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is already verified'
+      });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Set OTP expiry to 5 minutes from now
+    const otpExpiry = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Save OTP and expiry to user
+    user.verificationOTP = otp;
+    user.verificationOTPExpiry = otpExpiry;
+    await user.save();
+
+    // Send verification email
+    const emailSent = await sendVerificationEmail(user.email, otp);
+    
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send verification email. Please try again.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Verification OTP sent to your email'
+    });
+  } catch (error) {
+    console.error('Send verification OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error sending verification OTP'
+    });
+  }
+};
+
+// @desc    Verify OTP and mark user as verified
+// @route   POST /api/auth/verify-otp
+// @access  Private
+export const verifyOTP = async (req, res) => {
+  try {
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide the verification code'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if already verified
+    if (user.isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is already verified'
+      });
+    }
+
+    // Check if OTP exists
+    if (!user.verificationOTP || !user.verificationOTPExpiry) {
+      return res.status(400).json({
+        success: false,
+        message: 'No verification code found. Please request a new code.'
+      });
+    }
+
+    // Check if OTP has expired
+    if (new Date() > user.verificationOTPExpiry) {
+      // Clear expired OTP
+      user.verificationOTP = null;
+      user.verificationOTPExpiry = null;
+      await user.save();
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    // Check if OTP matches
+    if (user.verificationOTP !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code'
+      });
+    }
+
+    // OTP is valid - mark user as verified
+    user.isVerified = true;
+    user.verificationOTP = null;
+    user.verificationOTPExpiry = null;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Account verified successfully!'
+    });
+  } catch (error) {
+    console.error('Verify OTP error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error verifying OTP'
+    });
+  }
+};
+
 
 export default {
   register,

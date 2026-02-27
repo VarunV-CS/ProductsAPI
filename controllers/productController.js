@@ -143,7 +143,8 @@ export const getProductById = async (req, res) => {
   const { pid } = req.params;
   console.log('pid', pid);
   try {
-    const product = await Product.findOne({ pid: Number(pid) });
+    const product = await Product.findOne({ pid: Number(pid) })
+      .populate('user', 'businessName name');
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }

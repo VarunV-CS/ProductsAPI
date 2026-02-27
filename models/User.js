@@ -103,6 +103,18 @@ const userSchema = new mongoose.Schema(
         }
       ],
       default: []
+    },
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+    verificationOTP: {
+      type: String,
+      default: null
+    },
+    verificationOTPExpiry: {
+      type: Date,
+      default: null
     }
   },
   {
