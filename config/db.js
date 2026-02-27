@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import config from "./index.js";
+import Order from "../models/Order.js";
 
 const connectDB = async () => {
   if (!config.MONGODB_URL) {
@@ -12,6 +13,11 @@ const connectDB = async () => {
       config.MONGODB_URL
     );
     console.log("MongoDB Connected...", conn.connection.host);
+
+    // One-time schema/index alignment for orders:
+    // removes legacy unique paymentIntentId index and applies current indexes.
+    const syncedIndexes = await Order.syncIndexes();
+    console.log("Order indexes synced:", syncedIndexes);
   } catch (error) {
     console.error("MongoDB Connection Error:", error.message);
     process.exit(1);

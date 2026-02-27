@@ -35,10 +35,14 @@ const orderSchema = new mongoose.Schema(
       ref: 'users',
       required: true
     },
+    orderNumber: {
+      type: String,
+      default: null,
+      index: true
+    },
     paymentIntentId: {
       type: String,
-      required: true,
-      unique: true
+      required: true
     },
     amount: {
       type: Number,
@@ -50,8 +54,21 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'completed', 'failed', 'cancelled', 'dispatched', 'unfilled', 'delivered', 'returned', 'refunded', 'inprogress'],
+      enum: ['pending', 'completed', 'failed', 'cancelled', 'dispatched', 'unfilled', 'delivered', 'returned', 'refunded'],
       default: 'pending'
+    },
+    parentOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'orders',
+      default: null
+    },
+    sellerBusinessName: {
+      type: String,
+      default: null
+    },
+    splitProcessed: {
+      type: Boolean,
+      default: false
     },
     items: [orderItemSchema]
   },
@@ -64,8 +81,9 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ userId: 1, createdAt: -1 });
 // Index for querying by status
 orderSchema.index({ userId: 1, status: 1 });
+// Index for webhook/payment-success lookup and split processing
+orderSchema.index({ paymentIntentId: 1, parentOrderId: 1, splitProcessed: 1 });
 
 const Order = mongoose.model('orders', orderSchema);
 
 export default Order;
-

@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { v4 as uuidv4 } from 'uuid';
 import Order from '../models/Order.js';
+import Product from '../models/Product.js';
 
 // Initialize Stripe with your secret key
 // Note: In production, use environment variable
@@ -8,11 +9,103 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2024-12-18.acacia',
 });
 
+const getProductSellerMap = async (items = []) => {
+  const pids = [...new Set(
+    items
+      .map((item) => Number(item?.pid))
+      .filter((pid) => Number.isFinite(pid))
+  )];
+
+  if (!pids.length) {
+    return new Map();
+  }
+
+  const products = await Product.find({ pid: { $in: pids } })
+    .select('pid user')
+    .populate('user', 'businessName')
+    .lean();
+
+  return new Map(
+    products.map((product) => [
+      Number(product.pid),
+      product.user?.businessName || 'Unknown Seller',
+    ])
+  );
+};
+
+const groupItemsByBusinessName = (items = [], sellerByPid = new Map()) => {
+  const grouped = new Map();
+
+  for (const item of items) {
+    const businessName = sellerByPid.get(Number(item?.pid)) || 'Unknown Seller';
+    if (!grouped.has(businessName)) {
+      grouped.set(businessName, []);
+    }
+    grouped.get(businessName).push(item);
+  }
+
+  return grouped;
+};
+
+const multiVendorCheck = (groupedItems = new Map()) => groupedItems.size > 1;
+
+const buildSplitOrderPayload = (order, sellerBusinessName, items) => ({
+  userId: order.userId,
+  orderNumber: order.orderNumber || order.paymentIntentId,
+  paymentIntentId: order.paymentIntentId,
+  amount: items.reduce((total, item) => total + ((item?.price || 0) * (item?.quantity || 0)), 0),
+  currency: order.currency,
+  status: order.status,
+  parentOrderId: order._id,
+  sellerBusinessName,
+  splitProcessed: true,
+  items,
+});
+
+const multiVendorOrder = async (order, groupedItems) => {
+  const splitOrders = [...groupedItems.entries()].map(([sellerBusinessName, items]) =>
+    buildSplitOrderPayload(order, sellerBusinessName, items)
+  );
+
+  await Order.insertMany(splitOrders);
+  await Order.deleteOne({ _id: order._id });
+};
+
+const completeAndSplitOrderIfNeeded = async (paymentIntentId) => {
+  const baseOrder = await Order.findOneAndUpdate(
+    {
+      paymentIntentId,
+      parentOrderId: null,
+      splitProcessed: { $ne: true }
+    },
+    {
+      $set: {
+        status: 'completed',
+        splitProcessed: true
+      }
+    },
+    { new: true }
+  );
+
+  if (!baseOrder) return;
+
+  if (!baseOrder.orderNumber) {
+    baseOrder.orderNumber = baseOrder.paymentIntentId;
+    await baseOrder.save();
+  }
+
+  const sellerByPid = await getProductSellerMap(baseOrder.items || []);
+  const groupedItems = groupItemsByBusinessName(baseOrder.items || [], sellerByPid);
+
+  if (multiVendorCheck(groupedItems)) {
+    await multiVendorOrder(baseOrder, groupedItems);
+  }
+};
+
 // Create a payment intent
 export const createPaymentIntent = async (req, res) => {
   try {
     const { amount, currency = 'usd', items } = req.body;
-    const userId = req.user ? req.user.id : null; // Get user ID from auth middleware
 
     // Validate amount
     if (!amount || amount <= 0) {
@@ -39,11 +132,13 @@ export const createPaymentIntent = async (req, res) => {
     const orderId = paymentIntent.metadata.orderId;
     const newOrder = new Order({
       userId: req.user.id,
+      orderNumber: orderId,
       paymentIntentId: paymentIntent.id,
       amount,
       currency,
       items: items || [],
-      status: 'pending'
+      status: 'pending',
+      splitProcessed: false
     });
     
     await newOrder.save();
@@ -66,15 +161,16 @@ export const createPaymentIntent = async (req, res) => {
 // Handle payment success webhook
 export const handlePaymentSuccess = async (req, res) => {
   try {
-    const { paymentIntentId, orderId } = req.body;
+    const { paymentIntentId } = req.body;
 
-    // Update order in MongoDB
-    const order = await Order.findOne({ paymentIntentId });
-    
-    if (order) {
-      order.status = 'completed';
-      await order.save();
+    if (!paymentIntentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment intent ID is required'
+      });
     }
+
+    await completeAndSplitOrderIfNeeded(paymentIntentId);
 
     res.status(200).json({ success: true });
   } catch (error) {
@@ -112,6 +208,7 @@ export const getOrderStatus = async (req, res) => {
       success: true,
       order: {
         id: order._id,
+        orderNumber: order.orderNumber || order._id,
         amount: order.amount,
         currency: order.currency,
         status: order.status,
@@ -149,13 +246,8 @@ export const handleWebhook = async (req, res) => {
       case 'payment_intent.succeeded':
         const paymentIntent = event.data.object;
         console.log('Payment succeeded:', paymentIntent.id);
-        
-        // Update order status in MongoDB
-        const order = await Order.findOne({ paymentIntentId: paymentIntent.id });
-        if (order) {
-          order.status = 'completed';
-          await order.save();
-        }
+
+        await completeAndSplitOrderIfNeeded(paymentIntent.id);
         break;
         
       case 'payment_intent.payment_failed':
@@ -251,6 +343,7 @@ export const getUserOrders = async (req, res) => {
     // Format orders for response
     const formattedOrders = orders.map(order => ({
       id: order._id,
+      orderNumber: order.orderNumber || order._id,
       paymentIntentId: order.paymentIntentId,
       amount: order.amount,
       currency: order.currency,
@@ -279,7 +372,7 @@ export const getUserOrders = async (req, res) => {
   }
 };
 
-// Get all orders for admin (all completed orders with user details)
+// Get all orders for admin (default: completed; "all": all except pending)
 export const getAllOrders = async (req, res) => {
   try {
     const { page = 1, limit = 20, status } = req.query;
@@ -292,9 +385,11 @@ export const getAllOrders = async (req, res) => {
       });
     }
 
-    // Build query - get all completed orders by default
+    // Build query
     const query = {};
-    if (status && status !== 'all') {
+    if (status === 'all') {
+      query.status = { $ne: 'pending' };
+    } else if (status) {
       query.status = status;
     } else {
       // Default to showing completed orders
@@ -318,13 +413,41 @@ export const getAllOrders = async (req, res) => {
       .populate('userId', 'name email businessName role')
       .lean();
 
+    // Resolve seller business names for order items by pid
+    const allPids = [...new Set(
+      orders
+        .flatMap(order => (order.items || []).map(item => Number(item.pid)))
+        .filter((pid) => Number.isFinite(pid))
+    )];
+    const products = allPids.length > 0
+      ? await Product.find({ pid: { $in: allPids } })
+        .select('pid user')
+        .populate('user', 'businessName name')
+        .lean()
+      : [];
+    const productByPid = new Map(products.map((product) => [
+      product.pid,
+      {
+        businessName: product.user?.businessName || '',
+        sellerName: product.user?.name || '',
+      },
+    ]));
+
     // Format orders for response with user details
     const formattedOrders = orders.map(order => ({
       id: order._id,
+      orderNumber: order.orderNumber || order._id,
       paymentIntentId: order.paymentIntentId,
       amount: order.amount,
       currency: order.currency,
-      items: order.items,
+      items: (order.items || []).map((item) => {
+        const seller = productByPid.get(Number(item.pid));
+        return {
+          ...item,
+          businessName: seller?.businessName || 'Unknown Seller',
+          sellerName: seller?.sellerName || '',
+        };
+      }),
       status: order.status,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
@@ -363,7 +486,6 @@ export const getSellerOrders = async (req, res) => {
     const sellerId = req.user.id;
     
     // Get seller's product IDs
-    const Product = (await import('../models/Product.js')).default;
     const sellerProducts = await Product.find({ user: sellerId }).select('pid name').lean();
     const sellerProductPids = sellerProducts.map(p => p.pid);
 
@@ -382,7 +504,9 @@ export const getSellerOrders = async (req, res) => {
 
     // Build query - filter orders containing seller's products
     const query = { 'items.pid': { $in: sellerProductPids } };
-    if (status && status !== 'all') {
+    if (status === 'all') {
+      query.status = { $ne: 'pending' };
+    } else if (status) {
       query.status = status;
     } else {
       // Default to showing completed orders
@@ -413,6 +537,7 @@ export const getSellerOrders = async (req, res) => {
       
       return {
         id: order._id,
+        orderNumber: order.orderNumber || order._id,
         paymentIntentId: order.paymentIntentId,
         amount: order.amount,
         currency: order.currency,
@@ -466,7 +591,6 @@ export const updateSellerOrderStatus = async (req, res) => {
     }
 
     // Get seller's product IDs
-    const Product = (await import('../models/Product.js')).default;
     const sellerProducts = await Product.find({ user: sellerId }).select('pid name').lean();
     const sellerProductPids = sellerProducts.map(p => p.pid);
 
@@ -574,4 +698,3 @@ export const updateAdminOrderStatus = async (req, res) => {
     });
   }
 };
-

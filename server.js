@@ -12,8 +12,6 @@ import paymentRoutes from "./routes/paymentRoutes.js";
 import config from "./config/index.js";
 
 
-connectDB();
-
 const app = express();
 
 // Stripe webhook needs raw body, so we handle it before JSON parser
@@ -43,6 +41,17 @@ app.use("/comments", commentRoutes);
 app.use("/payment", paymentRoutes);
 
 const PORT = config.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error.message);
+    process.exit(1);
+  }
+};
+
+startServer();

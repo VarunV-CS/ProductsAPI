@@ -65,7 +65,8 @@ export const register = async (req, res) => {
         email: user.email,
         role: user.role,
         businessName: user.businessName,
-        cart: user.cart
+        cart: user.cart,
+        isVerified: user.isVerified
       }
     });
   } catch (error) {
@@ -136,7 +137,8 @@ export const login = async (req, res) => {
         email: user.email,
         role: user.role,
         businessName: user.businessName,
-        cart: user.cart
+        cart: user.cart,
+        isVerified: user.isVerified
       }
     });
   } catch (error) {
@@ -171,6 +173,7 @@ export const getProfile = async (req, res) => {
         role: user.role,
         businessName: user.businessName,
         cart: user.cart,
+        isVerified: user.isVerified,
         lastLogin: user.lastLogin,
         createdAt: user.createdAt
       }
@@ -718,4 +721,3 @@ export default {
   changeUserPassword,
   deactivateUser
 };
-
