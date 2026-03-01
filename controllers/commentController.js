@@ -1,5 +1,7 @@
 import Comment from '../models/Comment.js';
 import Product from '../models/Product.js';
+import User from '../models/User.js';
+import { sendRatingSubmissionEmail } from '../services/ratingSubmissionService.js';
 
 // @desc    Add a comment to a product
 // @route   POST /api/comments
@@ -24,7 +26,8 @@ export const addComment = async (req, res) => {
     }
 
     // Check if product exists
-    const product = await Product.findOne({ pid: Number(pid) });
+    const product = await Product.findOne({ pid: Number(pid) })
+      .populate('user', 'name email businessName');
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -55,6 +58,35 @@ export const addComment = async (req, res) => {
     });
 
     await newComment.save();
+
+    try {
+      const seller = product.user;
+      if (seller?.email) {
+        let reviewerEmail = 'N/A';
+        if (req.user?.id) {
+          const reviewer = await User.findById(req.user.id).select('email').lean();
+          reviewerEmail = reviewer?.email || 'N/A';
+        }
+
+        await sendRatingSubmissionEmail({
+          to: seller.email,
+          sellerName: seller.name,
+          sellerBusinessName: seller.businessName,
+          reviewerName: newComment.userName,
+          reviewerEmail,
+          rating: newComment.rating,
+          comment: newComment.comment,
+          product: {
+            pid: product.pid,
+            name: product.name,
+            category: product.category,
+            price: product.price
+          }
+        });
+      }
+    } catch (emailError) {
+      console.error('Failed to send rating submission email:', emailError);
+    }
 
     res.status(201).json({
       success: true,
@@ -279,4 +311,3 @@ export default {
   deleteComment,
   getRatingStats
 };
-

@@ -1,5 +1,6 @@
 import Product from "../models/Product.js";
 import User from "../models/User.js";
+import { sendProductStatusUpdateEmail } from "../services/productReviewService.js";
 
 // GET all products with pagination, filtering, and sorting
 // Only returns "Approved" products for customers
@@ -371,6 +372,36 @@ export const updateProductStatus = async (req, res) => {
         }
       }
     );
+
+    if (status === 'Approved' || status === 'Rejected') {
+      try {
+        const seller = updatedProduct.user
+          ? await User.findById(updatedProduct.user).select('email name businessName')
+          : null;
+
+        if (seller?.email) {
+          let actorLabel = req.user?.name || 'Admin';
+          if (req.user?.id) {
+            const adminUser = await User.findById(req.user.id).select('name email businessName');
+            if (adminUser) {
+              actorLabel = adminUser.businessName || adminUser.name || adminUser.email || actorLabel;
+            }
+          }
+
+          await sendProductStatusUpdateEmail({
+            to: seller.email,
+            status,
+            product: updatedProduct,
+            actionBy: actorLabel,
+            rejectionReason: status === 'Rejected' ? rejectionReason : null,
+            sellerName: seller.name,
+            sellerBusinessName: seller.businessName
+          });
+        }
+      } catch (emailError) {
+        console.error('Failed to send product status email:', emailError);
+      }
+    }
     
     res.json({
       success: true,

@@ -2,6 +2,9 @@ import Stripe from 'stripe';
 import { v4 as uuidv4 } from 'uuid';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import User from '../models/User.js';
+import { sendOrderStatusUpdateEmail } from '../services/orderUpdateService.js';
+import { sendInvoiceEmail } from '../services/invoiceService.js';
 
 // Initialize Stripe with your secret key
 // Note: In production, use environment variable
@@ -92,6 +95,43 @@ const completeAndSplitOrderIfNeeded = async (paymentIntentId) => {
   if (!baseOrder.orderNumber) {
     baseOrder.orderNumber = baseOrder.paymentIntentId;
     await baseOrder.save();
+  }
+
+  try {
+    const buyer = await User.findById(baseOrder.userId).select('name email').lean();
+    if (buyer?.email) {
+      let paymentIntent = null;
+      try {
+        paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+          expand: ['latest_charge']
+        });
+      } catch (stripeError) {
+        console.error('Error retrieving payment intent for invoice:', stripeError.message);
+      }
+
+      const latestCharge = paymentIntent?.latest_charge && typeof paymentIntent.latest_charge === 'object'
+        ? paymentIntent.latest_charge
+        : null;
+      const paymentMethodTypes = Array.isArray(paymentIntent?.payment_method_types)
+        ? paymentIntent.payment_method_types.join(', ')
+        : 'N/A';
+
+      await sendInvoiceEmail({
+        to: buyer.email,
+        buyerName: buyer.name,
+        order: baseOrder,
+        paymentDetails: {
+          paymentStatus: paymentIntent?.status || 'succeeded',
+          paymentMethod: paymentMethodTypes,
+          paymentIntentId: paymentIntent?.id || paymentIntentId,
+          transactionId: latestCharge?.id || 'N/A',
+          paidAt: latestCharge?.created ? new Date(latestCharge.created * 1000) : baseOrder.updatedAt,
+          receiptUrl: latestCharge?.receipt_url || null
+        }
+      });
+    }
+  } catch (invoiceError) {
+    console.error('Failed to send invoice email:', invoiceError);
   }
 
   const sellerByPid = await getProductSellerMap(baseOrder.items || []);
@@ -626,6 +666,28 @@ export const updateSellerOrderStatus = async (req, res) => {
     order.status = status;
     await order.save();
 
+    if (status === 'dispatched') {
+      try {
+        const buyer = await User.findById(order.userId).select('name email');
+        if (buyer?.email) {
+          await sendOrderStatusUpdateEmail({
+            to: buyer.email,
+            buyerName: buyer.name,
+            status: order.status,
+            orderId: order._id?.toString(),
+            orderNumber: order.orderNumber,
+            itemCount: Array.isArray(order.items)
+              ? order.items.reduce((total, item) => total + (Number(item?.quantity) || 0), 0)
+              : 0,
+            amount: order.amount,
+            currency: order.currency
+          });
+        }
+      } catch (emailError) {
+        console.error('Failed to send dispatched order email:', emailError);
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: `Order status updated to ${status}`,
@@ -680,6 +742,28 @@ export const updateAdminOrderStatus = async (req, res) => {
     // Update the order status
     order.status = status;
     await order.save();
+
+    if (status === 'delivered') {
+      try {
+        const buyer = await User.findById(order.userId).select('name email');
+        if (buyer?.email) {
+          await sendOrderStatusUpdateEmail({
+            to: buyer.email,
+            buyerName: buyer.name,
+            status: order.status,
+            orderId: order._id?.toString(),
+            orderNumber: order.orderNumber,
+            itemCount: Array.isArray(order.items)
+              ? order.items.reduce((total, item) => total + (Number(item?.quantity) || 0), 0)
+              : 0,
+            amount: order.amount,
+            currency: order.currency
+          });
+        }
+      } catch (emailError) {
+        console.error('Failed to send delivered order email:', emailError);
+      }
+    }
 
     res.status(200).json({
       success: true,

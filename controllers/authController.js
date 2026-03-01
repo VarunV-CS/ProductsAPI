@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import config from '../config/index.js';
-import { sendVerificationEmail } from '../services/emailServices.js';
+import { sendVerificationEmail } from '../services/verificationService.js';
 
 // Generate JWT token
 const generateToken = (userId, name, role) => {
