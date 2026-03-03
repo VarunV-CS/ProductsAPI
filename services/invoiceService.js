@@ -78,7 +78,7 @@ Total paid: ${formatMoney(totalPaid, safeCurrency)}
 
 Thank you for shopping with M1 Cart.`;
 
-  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small.png', import.meta.url));
+  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small_zoom.png', import.meta.url));
   const hasLogo = existsSync(logoPath);
 
   const itemRows = items.map((item) => {
@@ -170,7 +170,7 @@ Thank you for shopping with M1 Cart.`;
       attachments: hasLogo
         ? [
             {
-              filename: 'logo_small.png',
+              filename: 'logo_small_zoom.png',
               path: logoPath,
               cid: 'm1cart-logo'
             }

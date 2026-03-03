@@ -66,7 +66,7 @@ Price: ${productPrice}
 Regards,
 M1 Cart Team`;
 
-  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small.png', import.meta.url));
+  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small_zoom.png', import.meta.url));
   const hasLogo = existsSync(logoPath);
 
   const html = `
@@ -128,7 +128,7 @@ M1 Cart Team`;
       attachments: hasLogo
         ? [
             {
-              filename: 'logo_small.png',
+              filename: 'logo_small_zoom.png',
               path: logoPath,
               cid: 'm1cart-logo'
             }

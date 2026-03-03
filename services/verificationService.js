@@ -12,7 +12,7 @@ For your security, do not share this code with anyone.
 
 If you did not request this code, you can safely ignore this email.`;
 
-  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small.png', import.meta.url));
+  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small_zoom.png', import.meta.url));
   const hasLogo = existsSync(logoPath);
 
   const html = `
@@ -55,7 +55,7 @@ If you did not request this code, you can safely ignore this email.`;
     const attachments = hasLogo
       ? [
           {
-            filename: 'logo_small.png',
+            filename: 'logo_small_zoom.png',
             path: logoPath,
             cid: 'm1cart-logo'
           }

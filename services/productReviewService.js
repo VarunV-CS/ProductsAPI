@@ -30,11 +30,11 @@ export async function sendProductStatusUpdateEmail({
   const safeSellerName = sellerName || 'Seller';
   const safeBusinessName = sellerBusinessName || 'Business';
   const sellerWelcomeText = `${safeSellerName} (${safeBusinessName})`;
-  const approvedLogoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small.png', import.meta.url));
+  const approvedLogoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small_zoom.png', import.meta.url));
   const rejectedLogoPath = fileURLToPath(new URL('../../M1Cart/public/White_Name.png', import.meta.url));
   const selectedLogoPath = isApproved ? approvedLogoPath : (existsSync(rejectedLogoPath) ? rejectedLogoPath : approvedLogoPath);
   const hasLogo = existsSync(selectedLogoPath);
-  const selectedLogoFilename = selectedLogoPath.endsWith('White_Name.png') ? 'White_Name.png' : 'logo_small.png';
+  const selectedLogoFilename = selectedLogoPath.endsWith('White_Name.png') ? 'White_Name.png' : 'logo_small_zoom.png';
 
   const textLines = [
     `Hello ${sellerWelcomeText},`,

@@ -26,7 +26,7 @@ export async function sendOrderStatusUpdateEmail({
   const formattedAmount = Number.isFinite(Number(amount)) ? `$${Number(amount).toFixed(2)}` : 'N/A';
   const safeOrderRef = orderNumber || orderId || 'N/A';
   const safeItemCount = Number.isFinite(Number(itemCount)) ? Number(itemCount) : 'N/A';
-  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small.png', import.meta.url));
+  const logoPath = fileURLToPath(new URL('../../M1Cart/public/logo_small_zoom.png', import.meta.url));
   const hasLogo = existsSync(logoPath);
 
   const subject = `${title}: ${safeOrderRef}`;
@@ -92,7 +92,7 @@ Thank you for shopping with M1 Cart.`;
       attachments: hasLogo
         ? [
             {
-              filename: 'logo_small.png',
+              filename: 'logo_small_zoom.png',
               path: logoPath,
               cid: 'm1cart-logo'
             }
