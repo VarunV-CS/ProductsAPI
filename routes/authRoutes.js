@@ -12,7 +12,11 @@ import {
   changeUserPassword,
   deactivateUser,
   sendVerificationOTP,
-  verifyOTP
+  verifyOTP,
+  updatePassword,
+  checkEmailExists,
+  forgotPassword,
+  resetPassword
 } from '../controllers/authController.js';
 
 const router = express.Router();
@@ -20,6 +24,10 @@ const router = express.Router();
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+// Check email exists - public route for password reset
+router.post('/check-email', checkEmailExists);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
 
 // Protected routes
 router.get('/profile', authMiddleware, getProfile);
@@ -29,6 +37,8 @@ router.post('/logout', authMiddleware, logout);
 // Verification routes
 router.post('/send-verification-otp', authMiddleware, sendVerificationOTP);
 router.post('/verify-otp', authMiddleware, verifyOTP);
+// User password update route
+router.put('/update-password', authMiddleware, updatePassword);
 // Admin route - Get all users
 router.get('/all-users', authMiddleware, getAllUsers);
 // Admin route - Update user
@@ -39,4 +49,3 @@ router.put('/change-user-password/:id', authMiddleware, changeUserPassword);
 router.put('/deactivate-user/:id', authMiddleware, deactivateUser);
 
 export default router;
-

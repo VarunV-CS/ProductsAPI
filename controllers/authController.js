@@ -2,6 +2,11 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import config from '../config/index.js';
 import { sendVerificationEmail } from '../services/verificationService.js';
+import {
+  generatePasswordResetToken,
+  sendPasswordResetEmail,
+  verifyPasswordResetToken
+} from '../services/passwordResetService.js';
 
 // Generate JWT token
 const generateToken = (userId, name, role) => {
@@ -545,6 +550,253 @@ export const deactivateUser = async (req, res) => {
   }
 };
 
+// @desc    Update user password (authenticated user updates their own password)
+// @route   PUT /api/auth/update-password
+// @access  Private
+export const updatePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide both current password and new password'
+      });
+    }
+
+    // Validate new password length
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters'
+      });
+    }
+
+    // Find the user
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Update password (will be hashed by pre-save middleware)
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    console.error('Update password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error updating password'
+    });
+  }
+};
+
+// @desc    Check if email exists for password reset
+// @route   POST /api/auth/check-email
+// @access  Public
+export const checkEmailExists = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: 'Please enter a valid email address'
+      });
+    }
+
+    // Check if user exists with this email
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (user) {
+      return res.json({
+        success: true,
+        exists: true,
+        message: 'Email found - proceeding with password reset'
+      });
+    } else {
+      return res.json({
+        success: true,
+        exists: false,
+        message: 'No account found with this email address'
+      });
+    }
+  } catch (error) {
+    console.error('Check email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error checking email'
+    });
+  }
+};
+
+// @desc    Send password reset email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email, resetUrl } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address'
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(normalizedEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address'
+      });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email address'
+      });
+    }
+
+    const token = generatePasswordResetToken(user);
+    const baseResetUrl = typeof resetUrl === 'string' && resetUrl.trim()
+      ? resetUrl.trim()
+      : 'http://localhost:5173/reset';
+    const separator = baseResetUrl.includes('?') ? '&' : '?';
+    const resetLink = `${baseResetUrl}${separator}token=${encodeURIComponent(token)}`;
+
+    const emailSent = await sendPasswordResetEmail(user.email, resetLink);
+
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send password reset email. Please try again.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Password reset link sent to your email address'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error sending password reset email'
+    });
+  }
+};
+
+// @desc    Reset password using JWT reset token
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters'
+      });
+    }
+
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must contain uppercase, lowercase, and number'
+      });
+    }
+
+    const decoded = jwt.decode(token);
+    if (!decoded?.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid reset token'
+      });
+    }
+
+    const user = await User.findById(decoded.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    try {
+      const verifiedPayload = verifyPasswordResetToken(token, user);
+
+      if (verifiedPayload.purpose !== 'password-reset' || verifiedPayload.email !== user.email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid reset token'
+        });
+      }
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Reset link is invalid or has expired'
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    return res.json({
+      success: true,
+      message: 'Password has been reset successfully'
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error resetting password'
+    });
+  }
+};
+
 export const requestEmailVerification = async (req, res) => {
   const { email } = req.body;
 
@@ -719,5 +971,6 @@ export default {
   getAllUsers,
   updateUser,
   changeUserPassword,
-  deactivateUser
+  deactivateUser,
+  updatePassword
 };
