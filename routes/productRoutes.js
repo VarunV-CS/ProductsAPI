@@ -7,6 +7,7 @@ import {
   updateProduct,
   deleteProduct,
   getCategories,
+  getSearchSuggestions,
   getMyProducts,
   getLatestProductId,
   getAllProducts,
@@ -19,6 +20,7 @@ const router = express.Router();
 
 router.get("/", getProducts);
 router.get("/categories", getCategories);
+router.get("/suggestions", getSearchSuggestions);
 router.get("/latest-pid", getLatestProductId);
 // Admin route - Get all products (including Submitted, Approved, Rejected)
 router.get("/all", authMiddleware, getAllProducts);

@@ -2,6 +2,33 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 import { sendProductStatusUpdateEmail } from "../services/productReviewService.js";
 
+const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const tokenizeText = (value = "") =>
+  value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map(token => token.trim())
+    .filter(token => token.length >= 3);
+
+const buildSuggestionScore = (candidate, query, sourcePriority) => {
+  const normalizedCandidate = candidate.toLowerCase();
+  let score = sourcePriority;
+
+  if (normalizedCandidate === query) {
+    score += 120;
+  } else if (normalizedCandidate.startsWith(query)) {
+    score += 90;
+  } else if (normalizedCandidate.includes(` ${query}`)) {
+    score += 70;
+  } else if (normalizedCandidate.includes(query)) {
+    score += 45;
+  }
+
+  score -= Math.min(candidate.length, 80) * 0.15;
+  return score;
+};
+
 // GET all products with pagination, filtering, and sorting
 // Only returns "Approved" products for customers
 export const getProducts = async (req, res) => {
@@ -97,6 +124,93 @@ export const getProducts = async (req, res) => {
         prevPage: page > 1 ? page - 1 : null
       }
     });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// GET ranked search suggestions for the navbar autocomplete
+export const getSearchSuggestions = async (req, res) => {
+  try {
+    const rawQuery = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+    if (rawQuery.length < 2) {
+      return res.json({ suggestions: [] });
+    }
+
+    const query = rawQuery.toLowerCase();
+    const regex = new RegExp(escapeRegex(rawQuery), "i");
+
+    const products = await Product.find({
+      status: "Approved",
+      $or: [
+        { name: regex },
+        { category: regex },
+        { description: regex }
+      ]
+    })
+      .select("pid name category description")
+      .sort({ rating: -1, createdAt: -1 })
+      .limit(20)
+      .lean();
+
+    const rankedSuggestions = new Map();
+
+    const pushSuggestion = (text, type, meta = {}) => {
+      const candidate = text?.trim();
+      if (!candidate || candidate.length < 2) {
+        return;
+      }
+
+      const key = candidate.toLowerCase();
+      const score = buildSuggestionScore(candidate, query, meta.sourcePriority ?? 0);
+      const existing = rankedSuggestions.get(key);
+
+      if (!existing || score > existing.score) {
+        rankedSuggestions.set(key, {
+          text: candidate,
+          type,
+          subtitle: meta.subtitle || "",
+          pid: meta.pid ?? null,
+          score
+        });
+      }
+    };
+
+    for (const product of products) {
+      pushSuggestion(product.name, "product", {
+        pid: product.pid,
+        subtitle: product.category,
+        sourcePriority: 85
+      });
+
+      pushSuggestion(product.category, "category", {
+        subtitle: "Browse category",
+        sourcePriority: 60
+      });
+
+      const combinedTokens = new Set([
+        ...tokenizeText(product.name),
+        ...tokenizeText(product.category),
+        ...tokenizeText(product.description || "")
+      ]);
+
+      for (const token of combinedTokens) {
+        if (token.includes(query) || query.includes(token)) {
+          pushSuggestion(token, "keyword", {
+            subtitle: `Related to ${product.category}`,
+            sourcePriority: 32
+          });
+        }
+      }
+    }
+
+    const suggestions = Array.from(rankedSuggestions.values())
+      .sort((a, b) => b.score - a.score || a.text.localeCompare(b.text))
+      .slice(0, 8)
+      .map(({ score, ...suggestion }) => suggestion);
+
+    res.json({ suggestions });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
