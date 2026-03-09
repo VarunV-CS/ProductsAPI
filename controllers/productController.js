@@ -598,13 +598,17 @@ export const approveAllProductsBySeller = async (req, res) => {
     );
 
     // Update products in seller's User.products array
+    // Use arrayFilters to update ALL matching array elements (not just the first one)
     await User.updateMany(
-      { _id: seller._id, "products.pid": { $in: pidsToApprove } },
+      { _id: seller._id },
       { 
         $set: { 
-          "products.$.status": 'Approved',
-          "products.$.rejectionReason": null
+          "products.$[elem].status": 'Approved',
+          "products.$[elem].rejectionReason": null
         }
+      },
+      { 
+        arrayFilters: [{ "elem.pid": { $in: pidsToApprove } }] 
       }
     );
 
