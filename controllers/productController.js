@@ -527,6 +527,110 @@ export const updateProductStatus = async (req, res) => {
   }
 };
 
+// ============================================================================
+// ONE-TIME USE ENDPOINT - APPROVE ALL PRODUCTS BY SELLER'S BUSINESS NAME
+// REMOVE THIS FUNCTION AND ROUTE AFTER USE
+// ============================================================================
+
+/**
+ * Admin-only endpoint to approve all products for a specific seller by business name.
+ * NOTE: This does NOT send email notifications to the seller.
+ * Use case: One-time bulk approval for all products from a specific seller.
+ */
+export const approveAllProductsBySeller = async (req, res) => {
+  const { businessName } = req.body;
+
+  // Validate businessName is provided
+  if (!businessName) {
+    return res.status(400).json({ 
+      success: false, 
+      message: "Business name is required" 
+    });
+  }
+
+  // Check if user is admin
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ 
+      success: false, 
+      message: "Access denied. Admin only." 
+    });
+  }
+
+  try {
+    // Find the seller by business name
+    const seller = await User.findOne({ 
+      businessName: { $regex: new RegExp(`^${businessName}$`, 'i') } 
+    });
+
+    if (!seller) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Seller not found with this business name" 
+      });
+    }
+
+    // Find all products belonging to this seller that are NOT already approved
+    const productsToApprove = await Product.find({
+      user: seller._id,
+      status: { $ne: 'Approved' }
+    });
+
+    if (productsToApprove.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        message: "No products found that need approval for this seller",
+        approvedCount: 0
+      });
+    }
+
+    // Get the PIDs of products to approve
+    const pidsToApprove = productsToApprove.map(p => p.pid);
+
+    // Update all products in Product collection
+    const productUpdateResult = await Product.updateMany(
+      { pid: { $in: pidsToApprove } },
+      { 
+        $set: { 
+          status: 'Approved',
+          rejectionReason: null 
+        }
+      }
+    );
+
+    // Update products in seller's User.products array
+    await User.updateMany(
+      { _id: seller._id, "products.pid": { $in: pidsToApprove } },
+      { 
+        $set: { 
+          "products.$.status": 'Approved',
+          "products.$.rejectionReason": null
+        }
+      }
+    );
+
+    // NOTE: No email notification sent - intentionally skipped for this endpoint
+
+    res.json({
+      success: true,
+      message: `Successfully approved ${productUpdateResult.modifiedCount} products for seller: ${businessName}`,
+      approvedCount: productUpdateResult.modifiedCount,
+      sellerBusinessName: seller.businessName,
+      sellerEmail: seller.email
+    });
+
+  } catch (error) {
+    console.error('Error approving all products by seller:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error while approving products" 
+    });
+  }
+};
+
+// ============================================================================
+// END OF ONE-TIME USE ENDPOINT
+// ============================================================================
+
 // POST multiple products at once (bulk create)
 export const createProducts = async (req, res) => {
   const { products } = req.body;

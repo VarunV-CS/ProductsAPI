@@ -12,7 +12,8 @@ import {
   getMyProducts,
   getLatestProductId,
   getAllProducts,
-  updateProductStatus
+  updateProductStatus,
+  approveAllProductsBySeller
 } from "../controllers/productController.js";
 import authMiddleware from "../middleware/auth.js";
 import { sellerMiddleware } from "../middleware/sellerAuth.js";
@@ -36,6 +37,19 @@ router.post('/createProducts', createProducts);
 router.put('/updateProduct/:pid', updateProduct);
 // Admin route - Update product status (approve/reject)
 router.put('/updateStatus/:pid', authMiddleware, updateProductStatus);
+
+// ============================================================================
+// ONE-TIME USE ROUTE - APPROVE ALL PRODUCTS BY SELLER'S BUSINESS NAME
+// REMOVE THIS ROUTE AND CONTROLLER FUNCTION AFTER USE
+// ============================================================================
+
+// Admin route - Approve all products by seller's business name (NO email)
+router.post('/approve-all-by-seller', authMiddleware, approveAllProductsBySeller);
+
+// ============================================================================
+// END OF ONE-TIME USE ROUTE
+// ============================================================================
+
 router.delete('/deleteProduct/:pid', deleteProduct);
 
 export default router;
