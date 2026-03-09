@@ -555,3 +555,65 @@ export const createProducts = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// POST multiple products for authenticated seller (bulk create with user association)
+export const createMultipleProducts = async (req, res) => {
+  const { products } = req.body;
+  
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({ message: "Please provide an array of products" });
+  }
+  
+  // Validate each product has required fields
+  for (const product of products) {
+    if (!product.name || !product.category || !product.price) {
+      return res.status(400).json({ 
+        message: "Each product must have name, category, and price fields" 
+      });
+    }
+  }
+  
+  try {
+    // Get the latest product ID to generate sequential PIDs
+    const latestProduct = await Product.findOne().sort({ pid: -1 });
+    let currentPid = latestProduct ? latestProduct.pid : 0;
+    
+    // Prepare products with user association
+    const productsToInsert = products.map(product => ({
+      ...product,
+      user: req.user ? req.user.id : null,
+      status: product.status || 'Submitted'
+    }));
+    
+    // Insert all products
+    const savedProducts = await Product.insertMany(productsToInsert);
+    
+    // If user is authenticated, add all products to their products array
+    if (req.user) {
+      const userProductsToAdd = savedProducts.map(product => ({
+        pid: product.pid,
+        name: product.name,
+        category: product.category,
+        price: product.price,
+        image: product.image,
+        description: product.description,
+        inStock: product.inStock,
+        status: product.status || 'Submitted'
+      }));
+      
+      await User.findByIdAndUpdate(req.user.id, {
+        $push: {
+          products: { $each: userProductsToAdd }
+        }
+      });
+    }
+    
+    res.status(201).json({
+      success: true,
+      message: `${savedProducts.length} products created successfully`,
+      products: savedProducts
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};

@@ -3,6 +3,7 @@ import {
   getProducts,
   createProduct,
   createProducts,
+  createMultipleProducts,
   getProductById,
   updateProduct,
   deleteProduct,
@@ -29,6 +30,8 @@ router.get("/my-products", authMiddleware, sellerMiddleware, getMyProducts);
 router.get("/:pid", getProductById);
 // Protected route - Create product (seller role required)
 router.post('/createProduct', authMiddleware, sellerMiddleware, createProduct);
+// Protected route - Create multiple products (seller role required)
+router.post('/createMultipleProducts', authMiddleware, sellerMiddleware, createMultipleProducts);
 router.post('/createProducts', createProducts);
 router.put('/updateProduct/:pid', updateProduct);
 // Admin route - Update product status (approve/reject)
